@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<title>คิวขนมครกโบราณ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body{font-family:sans-serif;background:#fff3e0;margin:0;padding:15px}
+h1{text-align:center;font-size:32px}
+.item,.queue-box,.summary{background:#fff;border-radius:12px;padding:10px;margin-bottom:10px}
+.row{display:flex;justify-content:space-between;align-items:center}
+.btn{font-size:20px;padding:6px 12px;border:none;border-radius:8px}
+.add{background:#ff9800;color:#fff}
+.sub{background:#ccc}
+.done{background:#e53935;color:#fff}
+.price{font-weight:bold}
+.qr{margin-top:8px;text-align:center}
+hr{border:none;border-top:1px solid #ddd;margin:10px 0}
+.big{font-size:22px}
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+/* ====== CONFIG ====== */
+const flavors=["หอม","เผือก","ข้าวโพด","รวม"];
+
+/* ====== STORAGE ====== */
+let prices=JSON.parse(localStorage.getItem("prices"))||{"หอม":20,"เผือก":20,"ข้าวโพด":20,"รวม":25};
+let queue=JSON.parse(localStorage.getItem("queue"))||[];
+let summary=JSON.parse(localStorage.getItem("summary"))||{"หอม":0,"เผือก":0,"ข้าวโพด":0,"รวม":0};
+let qnum=JSON.parse(localStorage.getItem("qnum"))||1;
+
+function save(){
+  localStorage.setItem("prices",JSON.stringify(prices));
+  localStorage.setItem("queue",JSON.stringify(queue));
+  localStorage.setItem("summary",JSON.stringify(summary));
+  localStorage.setItem("qnum",qnum);
+}
+
+/* ====== MODE CHECK ====== */
+const params=new URLSearchParams(location.search);
+const qview = Number(params.get("queue"));
+
+/* ====== CUSTOMER MODE ====== */
+if(qview){
+  let html = `<h1>🍡 คิว ${qview}</h1>`;
+
+  // คิวของตัวเอง
+  const me = queue.find(x => x.num === Number(qview));
+
+
+  if(me){
+    let sum = 0;
+    html += `
+      <div class="summary big">
+        <b>🧾 รายการที่คุณสั่ง</b><br><br>
+    `;
+
+    for(let f in me.items){
+      let price = prices[f] || 0;
+      let qty   = me.items[f];
+      let money = qty * price;
+      sum += money;
+
+      html += `${f} x ${qty} = ${money} บาท<br>`;
+    }
+
+    html += `
+        <hr>
+        <b style="font-size:26px">💰 รวมทั้งหมด ${sum} บาท</b>
+      </div>
+    `;
+  } else {
+    html += `<p class="big">❌ ไม่พบข้อมูลคิวนี้</p>`;
+  }
+
+  document.getElementById("app").innerHTML = html;
+  throw "customer";
+}
+
+function renderCustomer(q){
+  let sum=0,html="<div class='summary big'>";
+  for(let f in q.items){
+    let m=q.items[f]*prices[f];
+    sum+=m;
+    html+=`${f} x ${q.items[f]} = ${m} บาท<br>`;
+  }
+  html+=`<hr><b>รวมทั้งหมด ${sum} บาท</b></div>`;
+  return html;
+}
+
+/* ====== SELLER MODE ====== */
+let current={"หอม":0,"เผือก":0,"ข้าวโพด":0,"รวม":0};
+
+function sellerUI(){
+  let html=`<h1>🍡 คิวขนมครก</h1><div id="order">`;
+  flavors.forEach(f=>{
+    html+=`
+    <div class="item row">
+      ${f}
+      <div>
+        <button class="btn sub" onclick="chg('${f}',-1)">−</button>
+        <b>${current[f]}</b>
+        <button class="btn add" onclick="chg('${f}',1)">+</button>
+      </div>
+    </div>`;
+  });
+  html+=`</div>
+  <button class="btn add" style="width:100%" onclick="addQueue()">➕ เพิ่มคิว</button>
+  <div id="list"></div>
+  <div class="summary">
+    <b>💸 ราคา / คิว</b><br>`+
+    flavors.map(f=>`
+    <div class="row">${f}
+      <div>
+        <button class="btn sub" onclick="chgPrice('${f}',-5)">−</button>
+        <span class="price">${prices[f]} บาท</span>
+        <button class="btn add" onclick="chgPrice('${f}',5)">+</button>
+      </div>
+    </div>`).join("")+
+  `<hr>
+    <b>📊 ยอดขาย</b><br>
+    ${flavors.map(f=>`${f}: ${summary[f]} คิว`).join(" | ")}<br><br>
+    <b>💰 เงินรวม:</b> <span id="total"></span> บาท<br>
+    <b>🏆 ขายดีที่สุด:</b> <span id="best"></span><br><br>
+    <button class="btn" onclick="exportCSV()">📤 Excel</button>
+    <button class="btn" onclick="shareLine()">📤 LINE</button>
+    <button class="btn" onclick="resetDay()">เริ่มวันใหม่</button>
+  </div>`;
+  document.getElementById("app").innerHTML=html;
+  render();
+}
+
+function chg(f,n){current[f]=Math.max(0,current[f]+n);sellerUI();}
+function chgPrice(f,n){prices[f]=Math.max(0,prices[f]+n);save();sellerUI();}
+
+function addQueue(){
+  let items={},has=false;
+  flavors.forEach(f=>{
+    if(current[f]>0){items[f]=current[f];summary[f]+=current[f];has=true;}
+  });
+  if(!has){alert("ยังไม่ได้เลือกออเดอร์");return;}
+  queue.push({num:qnum,items});
+  qnum++; current={"หอม":0,"เผือก":0,"ข้าวโพด":0,"รวม":0};
+  save(); sellerUI();
+}
+
+function render(){
+  let total=0,max=0,best=[];
+  queue.forEach((q,i)=>{
+    let list="";
+    for(let f in q.items) list+=`${f} x ${q.items[f]}<br>`;
+    document.getElementById("list").innerHTML+=`
+      <div class="queue-box">
+        <b>คิว ${q.num}</b><br>${list}
+        <div class="qr" id="qr-${q.num}"></div>
+        <button class="btn done" onclick="finish(${i})">เสร็จแล้ว</button>
+      </div>`;
+    setTimeout(()=>makeQR(q.num),0);
+  });
+  for(let f in summary){
+    total+=summary[f]*prices[f];
+    if(summary[f]>max){max=summary[f];best=[f];}
+    else if(summary[f]==max&&max>0)best.push(f);
+  }
+  document.getElementById("total").innerText=total;
+  document.getElementById("best").innerText=best.join(", ")||"-";
+}
+
+function finish(i){queue.splice(i,1);save();sellerUI();}
+
+function makeQR(num){
+  const url=location.origin+location.pathname+"?queue="+num;
+  new QRCode(document.getElementById("qr-"+num),{text:url,width:120,height:120});
+}
+
+function exportCSV(){
+  let csv="ไส้,จำนวน,ราคา,เงิน\n";
+  for(let f in summary) csv+=`${f},${summary[f]},${prices[f]},${summary[f]*prices[f]}\n`;
+  let a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download="kanomkrok_today.csv"; a.click();
+}
+
+function shareLine(){
+  let t="สรุปยอดขนมครกวันนี้\n";
+  for(let f in summary) t+=`${f}: ${summary[f]} คิว\n`;
+  t+=`รวม ${document.getElementById("total").innerText} บาท`;
+  navigator.share?navigator.share({text:t}):alert(t);
+}
+
+function resetDay(){
+  if(!confirm("เริ่มวันใหม่?"))return;
+  queue=[]; summary={"หอม":0,"เผือก":0,"ข้าวโพด":0,"รวม":0}; qnum=1;
+  save(); sellerUI();
+}
+
+sellerUI();
+</script>
+</body>
+</html>
